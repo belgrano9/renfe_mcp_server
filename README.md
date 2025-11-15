@@ -352,7 +352,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔗 Related Projects
 
-- [SNCF MCP Server]([https://github.com/yourusername/sncf_mcp](https://github.com/belgrano9/sncf_mcp_server)) - Similar server for French railways
+- [SNCF MCP Server](https://github.com/belgrano9/sncf_mcp_server) - Similar server for French railways
 - [FastMCP](https://github.com/jlowin/fastmcp) - The framework powering this server
 - [MCP Servers](https://github.com/modelcontextprotocol/servers) - Official MCP server implementations
 
