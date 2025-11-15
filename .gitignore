@@ -23,6 +23,7 @@ renfe_schedule.zip
 
 # Jupyter notebooks (except test notebook)
 *.ipynb
-!test.ipynb
+*.ipynb_checkpoints/
+*test.ipynb
 
 *.python-version
