@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Claude config
+.claude/
+
+# GTFS data (downloaded automatically)
+renfe_schedule/
+renfe_schedule.zip
+
+# Environment variables
+.env
+
+# Jupyter notebooks (except test notebook)
+*.ipynb
+!test.ipynb
