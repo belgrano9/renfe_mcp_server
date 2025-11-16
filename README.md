@@ -272,6 +272,13 @@ renfe_mcp/
 │   ├── models.py        # Pydantic models (Station, TrainRide)
 │   ├── exceptions.py    # Custom exceptions
 │   └── stations.json    # Station code database
+├── tests/              # Test suite
+│   ├── test_custom_scraper.py
+│   ├── test_final_integration.py
+│   ├── test_pagination.py
+│   ├── test_price_checker.py
+│   ├── test_price_pagination.py
+│   └── test_updated_price_checker.py
 └── renfe_schedule/     # GTFS data (auto-downloaded)
     ├── stops.txt        # Station information
     ├── routes.txt       # Train routes (AVE, ALVIA, etc.)
@@ -360,6 +367,8 @@ uv run python update_data.py
   - `models.py` - Pydantic data models (Station, TrainRide)
   - `exceptions.py` - Custom exception hierarchy
   - `stations.json` - Station code database
+- `tests/` - Comprehensive test suite
+  - Integration tests, pagination tests, and scraper tests
 - `renfe_schedule/` - GTFS data directory (auto-populated)
 
 ## 📝 Data Source
@@ -408,8 +417,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📮 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/renfe_mcp/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/renfe_mcp/discussions)
+- **Issues**: [GitHub Issues](https://github.com/belgrano9/renfe_mcp_server/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/belgrano9/renfe_mcp_server/discussions)
 - **MCP Docs**: [Model Context Protocol](https://modelcontextprotocol.io)
 
 ## 🔗 Related Projects
