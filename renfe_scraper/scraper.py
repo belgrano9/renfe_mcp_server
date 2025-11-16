@@ -1,7 +1,9 @@
 """Main Renfe scraper implementation using DWR protocol."""
 
 import json
+import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
@@ -15,6 +17,8 @@ from .exceptions import (
     RenfeParseError,
 )
 from . import dwr
+
+logger = logging.getLogger(__name__)
 
 
 class RenfeScraper:
@@ -83,26 +87,65 @@ class RenfeScraper:
             RenfeDWRTokenError: On token generation failures
             RenfeParseError: On response parsing failures
         """
+        start_time = time.time()
+        logger.info(
+            f"Starting scrape: {self.origin.code} → {self.destination.code}",
+            extra={
+                "origin": self.origin.code,
+                "destination": self.destination.code,
+                "date": self.departure_date.strftime("%Y-%m-%d"),
+            }
+        )
+
         try:
             # Step 1: Initialize search
+            logger.debug("Step 1/4: Initializing search session")
             self._do_search()
+            logger.debug("Step 1/4: Search session initialized")
 
             # Step 2: Get DWR token
+            logger.debug("Step 2/4: Requesting DWR token")
             self._do_get_dwr_token()
+            logger.debug(f"Step 2/4: DWR token obtained: {self.dwr_token[:20]}...")
 
             # Step 3: Update session
+            logger.debug("Step 3/4: Updating session objects")
             self._do_update_session()
+            logger.debug("Step 3/4: Session updated")
 
             # Step 4: Get train list
+            logger.debug("Step 4/4: Fetching train list")
             trains_data = self._do_get_train_list()
+            logger.debug(f"Step 4/4: Received {len(trains_data) if trains_data else 0} train records")
 
             # Step 5: Parse and return
-            return self._parse_trains(trains_data)
+            trains = self._parse_trains(trains_data)
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"Scrape completed: {len(trains)} trains found",
+                extra={
+                    "trains_found": len(trains),
+                    "duration_ms": elapsed_ms,
+                    "origin": self.origin.code,
+                    "destination": self.destination.code,
+                }
+            )
+
+            return trains
 
         except httpx.TimeoutException as e:
+            logger.error(f"Request timed out after {time.time() - start_time:.2f}s", exc_info=True)
             raise RenfeNetworkError(f"Request timed out: {e}") from e
         except httpx.HTTPError as e:
+            logger.error(f"HTTP error occurred: {e}", exc_info=True)
             raise RenfeNetworkError(f"HTTP error: {e}") from e
+        except RenfeDWRTokenError as e:
+            logger.error(f"DWR token error: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during scrape: {e}", exc_info=True)
+            raise
         finally:
             self.client.close()
 
@@ -218,20 +261,27 @@ class RenfeScraper:
         match = re.search(pattern, response_text)
 
         if not match:
+            logger.warning(f"Failed to extract DWR token. Response length: {len(response_text)} chars")
             raise RenfeDWRTokenError("Failed to extract DWR token from response")
 
-        return match.group(1)
+        token = match.group(1)
+        logger.debug(f"Extracted DWR token successfully (length: {len(token)})")
+        return token
 
     def _extract_train_list(self, response_text: str) -> dict:
         """Extract train list JSON from DWR response."""
         match = re.search(r"r\.handleCallback\([^,]+,\s*[^,]+,\s*(\{.*\})\);", response_text, re.DOTALL)
 
         if not match:
+            logger.warning(f"Failed to extract train list. Response length: {len(response_text)} chars")
             raise RenfeParseError("Failed to extract train list from response")
 
         try:
-            return json5.loads(match.group(1))
+            data = json5.loads(match.group(1))
+            logger.debug(f"Parsed train list JSON successfully")
+            return data
         except Exception as e:
+            logger.error(f"JSON parsing error: {e}", exc_info=True)
             raise RenfeParseError(f"Failed to parse train list JSON: {e}") from e
 
     def _parse_trains(self, data: dict) -> List[TrainRide]:
