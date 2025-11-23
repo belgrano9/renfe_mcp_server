@@ -1,12 +1,18 @@
-"""Main Renfe scraper implementation using DWR protocol."""
+"""
+Main Renfe scraper implementation using DWR protocol.
+
+Security: Implements secure HTTP client configuration to prevent SSRF and other attacks.
+"""
 
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+from urllib.parse import urlparse
 import httpx
 import json5
 
@@ -21,15 +27,162 @@ from . import dwr
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Security Configuration
+# ============================================================================
+
+# Allowed domains for HTTP requests (SSRF prevention)
+ALLOWED_DOMAINS = {
+    'venta.renfe.com',
+    'renfe.com',
+    'www.renfe.com',
+}
+
+# Maximum response size (10MB) to prevent memory exhaustion
+MAX_RESPONSE_SIZE = 10 * 1024 * 1024
+
+# HTTP timeout configuration (in seconds)
+HTTP_TIMEOUTS = httpx.Timeout(
+    connect=10.0,      # Connection establishment timeout
+    read=30.0,         # Read timeout for response body
+    write=10.0,        # Write timeout for request body
+    pool=5.0           # Pool checkout timeout
+)
+
+# Maximum redirects to follow (SSRF mitigation)
+MAX_REDIRECTS = 3
+
+
+class HTTPSecurityError(Exception):
+    """Raised when HTTP security validation fails."""
+    pass
+
+
+def validate_url(url: str) -> None:
+    """
+    Validate URL against security rules.
+
+    Security checks:
+    1. URL must use HTTPS
+    2. Domain must be in allowed list
+    3. No private IP addresses
+
+    Args:
+        url: URL to validate
+
+    Raises:
+        HTTPSecurityError: If URL fails validation
+    """
+    try:
+        parsed = urlparse(url)
+
+        # Check 1: HTTPS only
+        if parsed.scheme != 'https':
+            raise HTTPSecurityError(
+                f"Insecure protocol: {parsed.scheme}. Only HTTPS is allowed."
+            )
+
+        # Check 2: Domain whitelist
+        hostname = parsed.hostname
+        if hostname not in ALLOWED_DOMAINS:
+            raise HTTPSecurityError(
+                f"Domain not in whitelist: {hostname}. "
+                f"Allowed: {', '.join(ALLOWED_DOMAINS)}"
+            )
+
+        # Check 3: No private/local addresses
+        # Note: This is a basic check; comprehensive SSRF prevention
+        # would require resolving DNS and checking IP ranges
+        blocked_hosts = {'localhost', '127.0.0.1', '0.0.0.0', '::1'}
+        if hostname in blocked_hosts:
+            raise HTTPSecurityError(
+                f"Local/private addresses are not allowed: {hostname}"
+            )
+
+    except HTTPSecurityError:
+        raise
+    except Exception as e:
+        raise HTTPSecurityError(f"URL validation failed: {e}") from e
+
+
+def create_secure_client() -> httpx.Client:
+    """
+    Create a securely configured HTTP client.
+
+    Security features:
+    1. Explicit SSL/TLS verification enabled
+    2. Limited redirect following
+    3. Proper timeout configuration
+    4. Secure headers
+
+    Returns:
+        Configured httpx.Client instance
+    """
+    return httpx.Client(
+        # SECURITY: Enable SSL verification
+        verify=True,
+
+        # SECURITY: Limit redirects to prevent SSRF
+        follow_redirects=True,
+        max_redirects=MAX_REDIRECTS,
+
+        # SECURITY: Comprehensive timeout configuration
+        timeout=HTTP_TIMEOUTS,
+
+        # SECURITY: HTTP/2 disabled for compatibility and security
+        http2=False,
+
+        # Headers
+        headers={
+            # More specific User-Agent (identifies the tool)
+            "User-Agent": "RenfeMCPServer/0.3.0 (Train Schedule Tool; +https://github.com/belgrano9/renfe_mcp_server)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+            # Security headers
+            "DNT": "1",  # Do Not Track
+        }
+    )
+
+
+def check_response_size(response: httpx.Response) -> None:
+    """
+    Validate response size to prevent memory exhaustion.
+
+    Args:
+        response: HTTP response to check
+
+    Raises:
+        HTTPSecurityError: If response is too large
+    """
+    content_length = response.headers.get('content-length')
+
+    if content_length:
+        size = int(content_length)
+        if size > MAX_RESPONSE_SIZE:
+            raise HTTPSecurityError(
+                f"Response too large: {size / 1024 / 1024:.2f}MB "
+                f"(max: {MAX_RESPONSE_SIZE / 1024 / 1024:.0f}MB)"
+            )
+
+
 class RenfeScraper:
     """
     Modern Renfe price scraper using DWR protocol.
 
     This scraper interacts with Renfe's DWR (Direct Web Remoting) API to
     fetch train schedules and prices.
+
+    Security features:
+    - URL whitelist validation (only renfe.com domains)
+    - SSL/TLS verification enabled
+    - Limited redirect following (SSRF prevention)
+    - Response size limits
+    - Proper timeout configuration
     """
 
-    # URLs
+    # URLs (all validated against whitelist)
     SEARCH_URL = "https://venta.renfe.com/vol/buscarTren.do?Idioma=es&Pais=ES"
     DWR_BASE = "https://venta.renfe.com/vol/dwr/call/plaincall/"
     SYSTEM_ID_URL = f"{DWR_BASE}__System.generateId.dwr"
@@ -51,7 +204,13 @@ class RenfeScraper:
             destination: Destination station
             departure_date: Departure date and time
             return_date: Optional return date
+
+        Raises:
+            HTTPSecurityError: If any URL fails security validation
         """
+        # SECURITY: Validate all URLs before use
+        self._validate_urls()
+
         self.origin = origin
         self.destination = destination
         self.departure_date = departure_date
@@ -63,17 +222,26 @@ class RenfeScraper:
         self.dwr_token: Optional[str] = None
         self.script_session_id: Optional[str] = None
 
-        # HTTP client
-        self.client = httpx.Client(
-            timeout=30.0,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "*/*",
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive",
-            }
-        )
+        # SECURITY: Use secure HTTP client
+        self.client = create_secure_client()
+
+    @classmethod
+    def _validate_urls(cls) -> None:
+        """
+        Validate all URLs against security rules.
+
+        Raises:
+            HTTPSecurityError: If any URL fails validation
+        """
+        urls_to_validate = [
+            cls.SEARCH_URL,
+            cls.SYSTEM_ID_URL,
+            cls.UPDATE_SESSION_URL,
+            cls.TRAIN_LIST_URL,
+        ]
+
+        for url in urls_to_validate:
+            validate_url(url)
 
     def get_trains(self) -> List[TrainRide]:
         """
@@ -134,9 +302,15 @@ class RenfeScraper:
 
             return trains
 
+        except HTTPSecurityError as e:
+            logger.error(f"HTTP security error: {e}", exc_info=True)
+            raise RenfeNetworkError(f"Security error: {e}") from e
         except httpx.TimeoutException as e:
             logger.error(f"Request timed out after {time.time() - start_time:.2f}s", exc_info=True)
             raise RenfeNetworkError(f"Request timed out: {e}") from e
+        except httpx.TooManyRedirects as e:
+            logger.error(f"Too many redirects (possible SSRF attempt): {e}", exc_info=True)
+            raise RenfeNetworkError(f"Too many redirects (blocked for security): {e}") from e
         except httpx.HTTPError as e:
             logger.error(f"HTTP error occurred: {e}", exc_info=True)
             raise RenfeNetworkError(f"HTTP error: {e}") from e
@@ -148,6 +322,36 @@ class RenfeScraper:
             raise
         finally:
             self.client.close()
+
+    def _secure_post(self, url: str, **kwargs) -> httpx.Response:
+        """
+        Make a secure POST request with validation.
+
+        Security checks:
+        1. URL validation against whitelist
+        2. Response size validation
+
+        Args:
+            url: URL to POST to
+            **kwargs: Additional arguments for httpx.post()
+
+        Returns:
+            httpx.Response
+
+        Raises:
+            HTTPSecurityError: If security validation fails
+            httpx.HTTPError: On HTTP errors
+        """
+        # SECURITY: Validate URL before request
+        validate_url(url)
+
+        response = self.client.post(url, **kwargs)
+        response.raise_for_status()
+
+        # SECURITY: Check response size
+        check_response_size(response)
+
+        return response
 
     def _do_search(self) -> None:
         """Initialize the search session."""
@@ -197,19 +401,18 @@ class RenfeScraper:
             "Pais": "ES",
         }
 
-        response = self.client.post(self.SEARCH_URL, data=payload)
-        response.raise_for_status()
+        # SECURITY: Use secure POST method
+        self._secure_post(self.SEARCH_URL, data=payload)
 
     def _do_get_dwr_token(self) -> None:
         """Generate and extract DWR token."""
-        # First call (priming)
+        # First call (priming) - SECURITY: Use secure POST
         payload1 = dwr.build_generate_id_payload(next(self.batch_id), None)
-        self.client.post(self.SYSTEM_ID_URL, content=payload1)
+        self._secure_post(self.SYSTEM_ID_URL, content=payload1)
 
-        # Second call (get token)
+        # Second call (get token) - SECURITY: Use secure POST
         payload2 = dwr.build_generate_id_payload(next(self.batch_id), self.search_id)
-        response = self.client.post(self.SYSTEM_ID_URL, content=payload2)
-        response.raise_for_status()
+        response = self._secure_post(self.SYSTEM_ID_URL, content=payload2)
 
         # Extract token
         self.dwr_token = self._extract_dwr_token(response.text)
@@ -233,8 +436,8 @@ class RenfeScraper:
             self.script_session_id
         )
 
-        response = self.client.post(self.UPDATE_SESSION_URL, content=payload)
-        response.raise_for_status()
+        # SECURITY: Use secure POST
+        self._secure_post(self.UPDATE_SESSION_URL, content=payload)
 
     def _do_get_train_list(self) -> dict:
         """Fetch the train list from DWR API."""
@@ -250,8 +453,8 @@ class RenfeScraper:
             return_date_str
         )
 
-        response = self.client.post(self.TRAIN_LIST_URL, content=payload)
-        response.raise_for_status()
+        # SECURITY: Use secure POST
+        response = self._secure_post(self.TRAIN_LIST_URL, content=payload)
 
         return self._extract_train_list(response.text)
 
