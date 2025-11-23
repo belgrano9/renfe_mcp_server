@@ -2,6 +2,7 @@
 Main Renfe scraper implementation using DWR protocol.
 
 Security: Implements secure HTTP client configuration to prevent SSRF and other attacks.
+Privacy: Implements logging sanitization to prevent sensitive data exposure.
 """
 
 import json
@@ -9,6 +10,7 @@ import logging
 import os
 import re
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
@@ -25,6 +27,75 @@ from .exceptions import (
 from . import dwr
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Privacy / Logging Security Configuration
+# ============================================================================
+
+# Environment variable to control logging of sensitive data (default: False)
+LOG_SENSITIVE_DATA = os.getenv('RENFE_LOG_SENSITIVE_DATA', 'false').lower() == 'true'
+
+
+def sanitize_token(token: Optional[str], visible_chars: int = 4) -> str:
+    """
+    Sanitize a sensitive token for safe logging.
+
+    Args:
+        token: The sensitive token to sanitize
+        visible_chars: Number of characters to show at the beginning
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    if token is None:
+        return "[none]"
+
+    if LOG_SENSITIVE_DATA:
+        # Development mode - show full token (not recommended for production)
+        return token
+
+    if len(token) <= visible_chars:
+        return "[redacted]"
+
+    # Show first few chars + hash of remaining for correlation
+    token_hash = hashlib.sha256(token.encode()).hexdigest()[:8]
+    return f"{token[:visible_chars]}...#{token_hash}"
+
+
+def sanitize_cookie_value(value: str) -> str:
+    """
+    Sanitize cookie value for safe logging.
+
+    Args:
+        value: The cookie value to sanitize
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    if LOG_SENSITIVE_DATA:
+        return value
+
+    if len(value) > 20:
+        return f"[cookie:{len(value)}chars]"
+    return "[cookie:redacted]"
+
+
+def sanitize_response(response_text: str, max_length: int = 100) -> str:
+    """
+    Sanitize response text for safe logging.
+
+    Args:
+        response_text: The response text to sanitize
+        max_length: Maximum characters to include
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    if LOG_SENSITIVE_DATA:
+        return response_text[:max_length] + ("..." if len(response_text) > max_length else "")
+
+    return f"[response:{len(response_text)}chars]"
 
 
 # ============================================================================
@@ -180,7 +251,17 @@ class RenfeScraper:
     - Limited redirect following (SSRF prevention)
     - Response size limits
     - Proper timeout configuration
+    - HTTPS-only cookie transmission
+    - Secure cookie cleanup after use
+
+    Privacy features:
+    - Sensitive token sanitization in logs
+    - Cookie value redaction in logs
+    - Response content protection
     """
+
+    # Cookie names used by the scraper (for secure cleanup)
+    SENSITIVE_COOKIES = ['DWRSESSIONID', 'Search', 'JSESSIONID']
 
     # URLs (all validated against whitelist)
     SEARCH_URL = "https://venta.renfe.com/vol/buscarTren.do?Idioma=es&Pais=ES"
@@ -224,6 +305,43 @@ class RenfeScraper:
 
         # SECURITY: Use secure HTTP client
         self.client = create_secure_client()
+
+    def _secure_cleanup(self) -> None:
+        """
+        Securely clean up sensitive session data.
+
+        Security measures:
+        1. Clear sensitive cookies from client
+        2. Clear in-memory tokens
+        3. Close HTTP connection
+
+        This prevents sensitive data from lingering in memory
+        and ensures proper session termination.
+        """
+        try:
+            # Clear sensitive cookies
+            for cookie_name in self.SENSITIVE_COOKIES:
+                try:
+                    # Remove cookie from all domains/paths
+                    self.client.cookies.delete(cookie_name)
+                except Exception:
+                    pass  # Cookie may not exist
+
+            # PRIVACY: Clear sensitive in-memory tokens
+            if self.dwr_token:
+                self.dwr_token = None
+            if self.script_session_id:
+                self.script_session_id = None
+
+            logger.debug("Security cleanup completed: sensitive data cleared")
+        except Exception as e:
+            logger.warning(f"Security cleanup encountered an error: {type(e).__name__}")
+        finally:
+            # Always close the HTTP client
+            try:
+                self.client.close()
+            except Exception:
+                pass
 
     @classmethod
     def _validate_urls(cls) -> None:
@@ -274,7 +392,8 @@ class RenfeScraper:
             # Step 2: Get DWR token
             logger.debug("Step 2/4: Requesting DWR token")
             self._do_get_dwr_token()
-            logger.debug(f"Step 2/4: DWR token obtained: {self.dwr_token[:20]}...")
+            # PRIVACY: Sanitize token before logging
+            logger.debug(f"Step 2/4: DWR token obtained: {sanitize_token(self.dwr_token)}")
 
             # Step 3: Update session
             logger.debug("Step 3/4: Updating session objects")
@@ -321,7 +440,8 @@ class RenfeScraper:
             logger.error(f"Unexpected error during scrape: {e}", exc_info=True)
             raise
         finally:
-            self.client.close()
+            # SECURITY: Use secure cleanup to clear sensitive data
+            self._secure_cleanup()
 
     def _secure_post(self, url: str, **kwargs) -> httpx.Response:
         """
@@ -468,6 +588,7 @@ class RenfeScraper:
             raise RenfeDWRTokenError("Failed to extract DWR token from response")
 
         token = match.group(1)
+        # PRIVACY: Only log token length, not the actual value
         logger.debug(f"Extracted DWR token successfully (length: {len(token)})")
         return token
 
