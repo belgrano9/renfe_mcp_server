@@ -120,6 +120,125 @@ HTTP_TIMEOUTS = httpx.Timeout(
     pool=5.0           # Pool checkout timeout
 )
 
+
+# ============================================================================
+# Rate Limiting Configuration
+# ============================================================================
+
+# Minimum delay between requests in seconds (default: 0.5s)
+MIN_REQUEST_DELAY = float(os.getenv('RENFE_MIN_REQUEST_DELAY', '0.5'))
+
+# Maximum requests per minute (default: 10)
+MAX_REQUESTS_PER_MINUTE = int(os.getenv('RENFE_SCRAPER_MAX_RPM', '10'))
+
+# Exponential backoff settings for retries
+BACKOFF_BASE = 2.0  # Base for exponential backoff
+BACKOFF_MAX = 30.0  # Maximum backoff delay in seconds
+
+
+class ScraperRateLimiter:
+    """
+    Rate limiter for web scraping requests.
+
+    Implements:
+    1. Minimum delay between requests
+    2. Requests per minute limiting
+    3. Exponential backoff on errors
+    """
+
+    def __init__(self, min_delay: float = None, max_rpm: int = None):
+        """
+        Initialize rate limiter.
+
+        Args:
+            min_delay: Minimum seconds between requests (default: MIN_REQUEST_DELAY)
+            max_rpm: Maximum requests per minute (default: MAX_REQUESTS_PER_MINUTE)
+        """
+        self.min_delay = min_delay if min_delay is not None else MIN_REQUEST_DELAY
+        self.max_rpm = max_rpm if max_rpm is not None else MAX_REQUESTS_PER_MINUTE
+
+        self._last_request_time: float = 0
+        self._request_times: List[float] = []
+        self._consecutive_errors: int = 0
+
+    def wait_if_needed(self) -> None:
+        """
+        Wait if necessary to respect rate limits.
+
+        This should be called before each request.
+        """
+        current_time = time.time()
+
+        # Clean old request times (older than 60 seconds)
+        self._request_times = [
+            t for t in self._request_times
+            if current_time - t < 60
+        ]
+
+        # Check requests per minute limit
+        if len(self._request_times) >= self.max_rpm:
+            oldest = self._request_times[0]
+            wait_time = 60 - (current_time - oldest)
+            if wait_time > 0:
+                logger.debug(f"Rate limit: waiting {wait_time:.2f}s (max {self.max_rpm} RPM)")
+                time.sleep(wait_time)
+                current_time = time.time()
+
+        # Enforce minimum delay between requests
+        if self._last_request_time > 0:
+            elapsed = current_time - self._last_request_time
+            if elapsed < self.min_delay:
+                delay = self.min_delay - elapsed
+                logger.debug(f"Rate limit: waiting {delay:.2f}s (min delay)")
+                time.sleep(delay)
+                current_time = time.time()
+
+        # Record this request
+        self._last_request_time = current_time
+        self._request_times.append(current_time)
+
+    def record_success(self) -> None:
+        """Record a successful request (resets error counter)."""
+        self._consecutive_errors = 0
+
+    def record_error(self) -> None:
+        """Record a failed request and apply backoff if needed."""
+        self._consecutive_errors += 1
+
+    def get_backoff_delay(self) -> float:
+        """
+        Get the current backoff delay based on consecutive errors.
+
+        Returns:
+            Delay in seconds (0 if no errors)
+        """
+        if self._consecutive_errors == 0:
+            return 0
+
+        # Exponential backoff: base^errors, capped at max
+        delay = min(BACKOFF_BASE ** self._consecutive_errors, BACKOFF_MAX)
+        return delay
+
+    def apply_backoff(self) -> None:
+        """Apply exponential backoff delay if there have been errors."""
+        delay = self.get_backoff_delay()
+        if delay > 0:
+            logger.debug(f"Backoff: waiting {delay:.2f}s after {self._consecutive_errors} error(s)")
+            time.sleep(delay)
+
+
+# Global rate limiter instance (shared across scraper instances)
+_global_rate_limiter: Optional[ScraperRateLimiter] = None
+
+
+def get_rate_limiter() -> ScraperRateLimiter:
+    """Get or create the global rate limiter."""
+    global _global_rate_limiter
+    if _global_rate_limiter is None:
+        _global_rate_limiter = ScraperRateLimiter()
+    return _global_rate_limiter
+
+
 # Maximum redirects to follow (SSRF mitigation)
 MAX_REDIRECTS = 3
 
@@ -445,11 +564,12 @@ class RenfeScraper:
 
     def _secure_post(self, url: str, **kwargs) -> httpx.Response:
         """
-        Make a secure POST request with validation.
+        Make a secure POST request with validation and rate limiting.
 
         Security checks:
         1. URL validation against whitelist
-        2. Response size validation
+        2. Rate limiting (requests per minute, minimum delay)
+        3. Response size validation
 
         Args:
             url: URL to POST to
@@ -465,13 +585,26 @@ class RenfeScraper:
         # SECURITY: Validate URL before request
         validate_url(url)
 
-        response = self.client.post(url, **kwargs)
-        response.raise_for_status()
+        # RATE LIMITING: Wait if needed to respect rate limits
+        rate_limiter = get_rate_limiter()
+        rate_limiter.wait_if_needed()
 
-        # SECURITY: Check response size
-        check_response_size(response)
+        try:
+            response = self.client.post(url, **kwargs)
+            response.raise_for_status()
 
-        return response
+            # SECURITY: Check response size
+            check_response_size(response)
+
+            # Record successful request
+            rate_limiter.record_success()
+
+            return response
+
+        except (httpx.HTTPError, HTTPSecurityError) as e:
+            # Record error for backoff calculation
+            rate_limiter.record_error()
+            raise
 
     def _do_search(self) -> None:
         """Initialize the search session."""

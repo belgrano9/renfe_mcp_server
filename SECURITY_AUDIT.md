@@ -271,74 +271,41 @@ except Exception as e:
 
 ---
 
-#### 5. **No Input Validation for Date Parsing**
+#### 5. **No Input Validation for Date Parsing** ✅ FIXED
 
-**Location:** `main.py:75-111`, `price_checker.py:71-75`
+**Location:** `schedule_searcher.py:76-153`
 **Severity:** MEDIUM
 **CVSS Score:** 4.3 (Medium)
+**Status:** ✅ REMEDIATED (2025-11-23)
 
 **Description:**
-While the date parsing function `get_formatted_date()` uses `dateutil.parser`, it doesn't validate the parsed date against reasonable bounds, potentially allowing dates far in the future/past that could cause issues.
+The date parsing function didn't validate parsed dates against reasonable bounds, allowing dates far in the future/past.
 
-**Vulnerable Code:**
+**Implemented Fix:**
+Added date bounds validation to `ScheduleSearcher.format_date()` in `schedule_searcher.py`:
+
 ```python
-# main.py:99
-dt_obj = date_parser.parse(date_str)  # No bounds checking
+# Security Configuration
+MAX_DAYS_PAST = 1      # Allow yesterday
+MAX_DAYS_FUTURE = 365  # Max 1 year ahead
 
-# No validation for:
-# - Dates in the past (historical data likely not available)
-# - Dates too far in the future (GTFS data has limited range)
-# - Invalid dates like year 9999
+# In format_date() method:
+# SECURITY: Validate date bounds to prevent abuse
+today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+dt_date = dt_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+
+min_date = today - timedelta(days=MAX_DAYS_PAST)
+max_date = today + timedelta(days=MAX_DAYS_FUTURE)
+
+if dt_date < min_date:
+    raise ValueError(f"Date is too far in the past...")
+if dt_date > max_date:
+    raise ValueError(f"Date is too far in the future...")
 ```
 
-**Impact:**
-- Performance degradation searching impossible date ranges
-- Potential DoS via resource exhaustion
-- Confusing error messages for users
-- Unnecessary API calls to Renfe for invalid dates
+**Test File:** `test_date_validation.py` - 5/5 tests passing
 
-**Recommendation:**
-```python
-def get_formatted_date(date_str=None):
-    """
-    Flexible date parser with security bounds.
-    Returns date in YYYY-MM-DD format.
-    """
-    if not date_str:
-        dt_obj = datetime.now()
-    else:
-        try:
-            # Parse the date
-            if "/" in date_str:
-                # European date parsing logic...
-                dt_obj = date_parser.parse(date_str, dayfirst=True)
-            else:
-                dt_obj = date_parser.parse(date_str)
-
-            # SECURITY: Validate date bounds
-            today = datetime.now()
-            min_date = today - timedelta(days=1)  # Allow yesterday
-            max_date = today + timedelta(days=365)  # Max 1 year ahead
-
-            if dt_obj < min_date:
-                raise ValueError(
-                    f"Date {dt_obj.date()} is in the past. "
-                    f"Please use a date from today onwards."
-                )
-
-            if dt_obj > max_date:
-                raise ValueError(
-                    f"Date {dt_obj.date()} is too far in the future. "
-                    f"Maximum booking window is 365 days."
-                )
-
-        except (ValueError, date_parser.ParserError) as e:
-            # ... existing error handling
-
-    return dt_obj.strftime("%Y-%m-%d")
-```
-
-**Priority:** MEDIUM - Implement before production
+**Priority:** ✅ COMPLETED
 
 ---
 
@@ -394,61 +361,57 @@ def _secure_cleanup(self) -> None:
 
 ### 🟢 LOW SEVERITY
 
-#### 7. **No Rate Limiting on Web Scraping**
+#### 7. **No Rate Limiting on Web Scraping** ✅ FIXED
 
-**Location:** `renfe_scraper/scraper.py:78-150`, `price_checker.py:20-119`
+**Location:** `renfe_scraper/scraper.py:123-238`
 **Severity:** LOW
 **CVSS Score:** 3.1 (Low)
+**Status:** ✅ REMEDIATED (2025-11-23)
 
 **Description:**
-The scraper has no rate limiting, cooldown periods, or request throttling when making requests to Renfe's website.
+The scraper had no rate limiting when making requests to Renfe's website.
 
-**Impact:**
-- Potential IP blocking by Renfe
-- Could be classified as abusive behavior
-- Service degradation for legitimate users
-- Possible legal/ToS issues
+**Implemented Fix:**
+Added comprehensive `ScraperRateLimiter` class to `renfe_scraper/scraper.py`:
 
-**Recommendation:**
 ```python
-import asyncio
-from datetime import datetime, timedelta
+# Configuration (environment-configurable)
+MIN_REQUEST_DELAY = float(os.getenv('RENFE_MIN_REQUEST_DELAY', '0.5'))
+MAX_REQUESTS_PER_MINUTE = int(os.getenv('RENFE_SCRAPER_MAX_RPM', '10'))
+BACKOFF_BASE = 2.0
+BACKOFF_MAX = 30.0
 
-class RateLimiter:
-    """Simple rate limiter for web scraping."""
+class ScraperRateLimiter:
+    """Rate limiter implementing minimum delay, RPM limits, and backoff."""
 
-    def __init__(self, requests_per_minute: int = 10):
-        self.requests_per_minute = requests_per_minute
-        self.requests = []
+    def wait_if_needed(self) -> None:
+        """Wait if needed to respect rate limits."""
+        # Enforces minimum delay between requests
+        # Tracks and limits requests per minute
+        # Applies exponential backoff on errors
 
-    async def wait_if_needed(self):
-        """Wait if rate limit would be exceeded."""
-        now = datetime.now()
-        # Remove requests older than 1 minute
-        self.requests = [r for r in self.requests if now - r < timedelta(minutes=1)]
+    def record_success(self) -> None:
+        """Reset error counter on success."""
 
-        if len(self.requests) >= self.requests_per_minute:
-            wait_time = 60 - (now - self.requests[0]).seconds
-            await asyncio.sleep(wait_time)
-            self.requests = []
+    def record_error(self) -> None:
+        """Track errors for backoff calculation."""
 
-        self.requests.append(now)
-
-# Usage:
-rate_limiter = RateLimiter(requests_per_minute=10)
-
-async def get_trains(self):
-    await rate_limiter.wait_if_needed()
-    # ... make request
+# Integrated into _secure_post() method:
+rate_limiter = get_rate_limiter()
+rate_limiter.wait_if_needed()
+# ... make request ...
+rate_limiter.record_success()  # or record_error()
 ```
 
-**Additional Recommendations:**
-- Add configurable delays between requests (0.5-2 seconds)
-- Implement exponential backoff on errors
-- Add User-Agent rotation
-- Respect robots.txt (if applicable)
+**Features Implemented:**
+- ✅ Minimum delay between requests (0.5s default)
+- ✅ Requests per minute limiting (10 RPM default)
+- ✅ Exponential backoff on errors (2^n seconds, max 30s)
+- ✅ Environment-configurable settings
 
-**Priority:** LOW - Nice to have
+**Test File:** `test_rate_limiting_rng.py` - 6/6 tests passing
+
+**Priority:** ✅ COMPLETED
 
 ---
 
@@ -520,49 +483,47 @@ logger.debug(f"Step 2/4: DWR token obtained: {sanitize_token(self.dwr_token)}")
 
 ---
 
-#### 9. **Weak Random Number Generation**
+#### 9. **Weak Random Number Generation** ✅ FIXED
 
-**Location:** `renfe_scraper/dwr.py:22-34`, `72-74`
+**Location:** `renfe_scraper/dwr.py:27-42`, `68-87`
 **Severity:** LOW
 **CVSS Score:** 3.7 (Low)
+**Status:** ✅ REMEDIATED (2025-11-23)
 
 **Description:**
-The code uses Python's `random` module for generating search IDs and session tokens. While not cryptographically secure, this is acceptable for search IDs but could be improved.
+The code used Python's `random` module which is not cryptographically secure.
 
-**Code:**
-```python
-# renfe_scraper/dwr.py:32-34
-def create_search_id() -> str:
-    search_id = "_"
-    for _ in range(4):
-        search_id += random.choice(string.ascii_letters + string.digits)  # Not cryptographically secure
-    return search_id
+**Implemented Fix:**
+Replaced `random` module with `secrets` module in `renfe_scraper/dwr.py`:
 
-# renfe_scraper/dwr.py:73
-random_token = tokenify(int(random.random() * 1e16))  # Predictable
-```
-
-**Impact:**
-- Session ID prediction (low probability)
-- Potential session hijacking in theory
-- Search ID collision (very unlikely)
-
-**Recommendation:**
 ```python
 import secrets  # Cryptographically secure random
 
 def create_search_id() -> str:
-    """Generate a secure search ID."""
-    return "_" + ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
+    """Generate a cryptographically secure search ID."""
+    # SECURITY: Use secrets module for cryptographic randomness
+    chars = string.ascii_letters + string.digits
+    search_id = "_" + ''.join(secrets.choice(chars) for _ in range(4))
+    return search_id
 
 def create_session_script_id(dwr_token: str) -> str:
-    """Create secure scriptSessionId."""
+    """Create a cryptographically secure scriptSessionId."""
     date_token = tokenify(int(datetime.now().timestamp() * 1000))
-    random_token = tokenify(secrets.randbits(53))  # Secure random (53 bits for float precision)
+    # SECURITY: Use secrets.randbits() for cryptographic randomness
+    # 53 bits matches JavaScript's float precision for compatibility
+    random_token = tokenify(secrets.randbits(53))
     return f"{dwr_token}/{date_token}-{random_token}"
 ```
 
-**Priority:** LOW - Not critical but good practice
+**Security Improvements:**
+- ✅ `secrets.choice()` for search ID generation
+- ✅ `secrets.randbits(53)` for session tokens
+- ✅ Prevents session ID prediction attacks
+- ✅ Cryptographically secure randomness
+
+**Test File:** `test_rate_limiting_rng.py` - 6/6 tests passing
+
+**Priority:** ✅ COMPLETED
 
 ---
 

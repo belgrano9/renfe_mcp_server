@@ -1,6 +1,11 @@
-"""DWR (Direct Web Remoting) protocol utilities."""
+"""
+DWR (Direct Web Remoting) protocol utilities.
 
-import random
+Security: Uses cryptographically secure random number generation (secrets module)
+for session IDs and tokens to prevent prediction attacks.
+"""
+
+import secrets
 import string
 from datetime import datetime
 from typing import Generator, Iterator, Optional
@@ -21,16 +26,19 @@ def get_batch_id_generator() -> Iterator[int]:
 
 def create_search_id() -> str:
     """
-    Generate a search ID for Renfe searches.
+    Generate a cryptographically secure search ID for Renfe searches.
 
-    Format: '_' followed by 4 random alphanumeric characters (e.g., '_Aa#')
+    Format: '_' followed by 4 random alphanumeric characters (e.g., '_Aa9X')
+
+    Security: Uses secrets.choice() for cryptographic randomness, preventing
+    session ID prediction attacks.
 
     Returns:
         Search ID string
     """
-    search_id = "_"
-    for _ in range(4):
-        search_id += random.choice(string.ascii_letters + string.digits)
+    # SECURITY: Use secrets module for cryptographically secure random selection
+    chars = string.ascii_letters + string.digits
+    search_id = "_" + ''.join(secrets.choice(chars) for _ in range(4))
     return search_id
 
 
@@ -59,9 +67,12 @@ def tokenify(number: int) -> str:
 
 def create_session_script_id(dwr_token: str) -> str:
     """
-    Create the scriptSessionId for DWR requests.
+    Create a cryptographically secure scriptSessionId for DWR requests.
 
-    Combines the DWR token with timestamp and random tokens.
+    Combines the DWR token with timestamp and cryptographically random tokens.
+
+    Security: Uses secrets.randbits() for cryptographic randomness, preventing
+    session prediction attacks.
 
     Args:
         dwr_token: The DWR session token
@@ -70,7 +81,9 @@ def create_session_script_id(dwr_token: str) -> str:
         Script session ID string
     """
     date_token = tokenify(int(datetime.now().timestamp() * 1000))
-    random_token = tokenify(int(random.random() * 1e16))
+    # SECURITY: Use secrets.randbits() for cryptographically secure random number
+    # 53 bits matches JavaScript's float precision for compatibility
+    random_token = tokenify(secrets.randbits(53))
     return f"{dwr_token}/{date_token}-{random_token}"
 
 

@@ -8,12 +8,23 @@ It's separate from the MCP server to make the search functionality:
 - More maintainable with clear separation of concerns
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from dateutil import parser as date_parser
+
+
+# ============================================================================
+# Security Configuration - Date Bounds
+# ============================================================================
+
+# Maximum days in the past allowed for searches (default: 1 day)
+MAX_DAYS_PAST = 1
+
+# Maximum days in the future allowed for searches (default: 365 days)
+MAX_DAYS_FUTURE = 365
 
 
 class ScheduleSearcher:
@@ -117,6 +128,27 @@ class ScheduleSearcher:
                     f"  - Written: 'November 28, 2025' or '28 November 2025'\n"
                     f"Error: {str(e)}"
                 )
+
+        # SECURITY: Validate date bounds to prevent abuse
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        dt_date = dt_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        min_date = today - timedelta(days=MAX_DAYS_PAST)
+        max_date = today + timedelta(days=MAX_DAYS_FUTURE)
+
+        if dt_date < min_date:
+            raise ValueError(
+                f"❌ Date '{dt_obj.strftime('%Y-%m-%d')}' is too far in the past. "
+                f"Please use a date from yesterday onwards.\n"
+                f"   Earliest allowed: {min_date.strftime('%Y-%m-%d')}"
+            )
+
+        if dt_date > max_date:
+            raise ValueError(
+                f"❌ Date '{dt_obj.strftime('%Y-%m-%d')}' is too far in the future. "
+                f"Maximum booking window is {MAX_DAYS_FUTURE} days.\n"
+                f"   Latest allowed: {max_date.strftime('%Y-%m-%d')}"
+            )
 
         return dt_obj.strftime("%Y-%m-%d")
 
