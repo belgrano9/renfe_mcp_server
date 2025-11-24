@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 # Import from update_data
-from update_data import (
+from renfe_mcp.update_data import (
     safe_extract_zip,
     ZipSlipError,
     ZipSecurityError,

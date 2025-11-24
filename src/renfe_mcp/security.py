@@ -68,13 +68,13 @@ class SecurityConfig:
 
         if self.DEV_MODE:
             warnings.append(
-                "⚠️  DEV_MODE is enabled. Security features may be relaxed. "
+                "DEV_MODE is enabled. Security features may be relaxed. "
                 "DO NOT use in production!"
             )
 
         if not self.ENABLE_AUTH and not self.DEV_MODE:
             warnings.append(
-                "⚠️  Authentication is DISABLED in production mode. "
+                "Authentication is DISABLED in production mode. "
                 "This is not recommended for production deployments."
             )
 
@@ -454,7 +454,7 @@ def require_auth(is_price_request: bool = False):
                     level='WARNING'
                 )
                 return (
-                    "❌ Authentication failed. Please provide a valid API key.\n"
+                    "Authentication failed. Please provide a valid API key.\n"
                     "Set the 'api_key' parameter or configure RENFE_API_KEY environment variable."
                 )
 
@@ -474,7 +474,7 @@ def require_auth(is_price_request: bool = False):
                     },
                     level='WARNING'
                 )
-                return f"❌ {error_message}"
+                return f"{error_message}"
 
             # Log successful access
             security_logger.log_event(
@@ -538,15 +538,15 @@ def initialize_security() -> None:
     print()
 
     if warnings:
-        print("⚠️  SECURITY WARNINGS:")
+        print("SECURITY WARNINGS:")
         for warning in warnings:
             print(f"  - {warning}")
         print()
 
     if is_valid:
-        print("✅ Security configuration validated")
+        print("Security configuration validated")
     else:
-        print("❌ Security configuration has warnings - review before production use")
+        print("Security configuration has warnings - review before production use")
 
     print()
     print("=" * 70)
@@ -600,15 +600,15 @@ RENFE_DEV_MODE=false
         # Create backup
         backup_file = output_file.with_suffix('.env.backup')
         output_file.rename(backup_file)
-        print(f"✅ Existing file backed up to: {backup_file}")
+        print(f"Existing file backed up to: {backup_file}")
 
     output_file.write_text(env_content)
 
-    print(f"✅ API key generated and saved to: {output_path}")
+    print(f"API key generated and saved to: {output_path}")
     print(f"   API Key: {api_key}")
     print(f"   Hash:    {api_key_hash}")
     print()
-    print("⚠️  Keep this API key secure! Do not commit it to version control.")
+    print("Keep this API key secure! Do not commit it to version control.")
     print("   Add .env to your .gitignore file.")
 
 

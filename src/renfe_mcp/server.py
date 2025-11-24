@@ -1,11 +1,18 @@
+"""
+Renfe MCP Server - Train schedules and prices for Spanish railways.
+
+This is the main entry point for the MCP server.
+"""
+
 from typing import Any
 
+from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from price_checker import check_prices
-from schedule_searcher import ScheduleSearcher
-from station_service import get_station_service
-from security import require_auth, initialize_security
+from renfe_mcp.price_checker import check_prices
+from renfe_mcp.schedule_searcher import ScheduleSearcher
+from renfe_mcp.station_service import get_station_service
+from renfe_mcp.security import require_auth, initialize_security
 
 # Load environment variables
 load_dotenv()
@@ -45,22 +52,22 @@ def get_stops_for_city(city_name: str) -> dict[str, Any]:
             "success": False,
             "stop_ids": [],
             "stations": [],
-            "context": f"❌ No stations found for '{city_name}'. Please check the spelling or try a different city name.",
+            "context": f"No stations found for '{city_name}'. Please check the spelling or try a different city name.",
         }
 
     stop_ids = [s.gtfs_id for s in gtfs_stations]
     stations = [s.name for s in gtfs_stations]
 
     # Build context narrative
-    context = f"🔍 Searched for '{city_name}':\n"
+    context = f"Searched for '{city_name}':\n"
     for i, (sid, name) in enumerate(zip(stop_ids[:3], stations[:3])):
-        marker = "✓" if i == 0 else " "
+        marker = ">" if i == 0 else " "
         context += f"  {marker} {name} (ID: {sid})\n"
 
     if len(stations) == 1:
-        context += f"\n→ Found 1 station"
+        context += f"\n-> Found 1 station"
     else:
-        context += f"\n→ Found {len(stations)} stations"
+        context += f"\n-> Found {len(stations)} stations"
 
     return {
         "success": True,
@@ -98,22 +105,22 @@ def search_trains(origin: str, destination: str, date: str = None, page: int = 1
     """
 
     # Build up a story for Claude
-    story = "═══════════════════════════════════\n"
+    story = "===================================\n"
     story += "    RENFE TRAIN SEARCH\n"
-    story += "═══════════════════════════════════\n\n"
+    story += "===================================\n\n"
 
     # Format the date
     try:
         formatted_date = searcher.format_date(date)
     except ValueError as e:
         story += str(e)
-        story += "\n═══════════════════════════════════\n"
+        story += "\n===================================\n"
         return story
 
     if date:
-        story += f"📅 Searching for trains on: {formatted_date}\n\n"
+        story += f"Searching for trains on: {formatted_date}\n\n"
     else:
-        story += f"📅 Searching for trains on: {formatted_date} (today)\n\n"
+        story += f"Searching for trains on: {formatted_date} (today)\n\n"
 
     # Validate pagination parameters
     page = max(1, page)  # Ensure page is at least 1
@@ -123,13 +130,13 @@ def search_trains(origin: str, destination: str, date: str = None, page: int = 1
     origin_result = get_stops_for_city(origin)
     if not origin_result["success"]:
         story += origin_result["context"]
-        story += "\n═══════════════════════════════════\n"
+        story += "\n===================================\n"
         return story
 
     dest_result = get_stops_for_city(destination)
     if not dest_result["success"]:
         story += dest_result["context"]
-        story += "\n═══════════════════════════════════\n"
+        story += "\n===================================\n"
         return story
 
     origin_stops = origin_result["stop_ids"]
@@ -139,14 +146,14 @@ def search_trains(origin: str, destination: str, date: str = None, page: int = 1
     search_result = searcher.search_trains(origin_stops, dest_stops, formatted_date, page, per_page)
 
     # Format the results
-    story += "─────────────────────────────────\n"
-    story += "🚄 AVAILABLE TRAINS\n"
-    story += "─────────────────────────────────\n\n"
+    story += "---------------------------------\n"
+    story += "AVAILABLE TRAINS\n"
+    story += "---------------------------------\n\n"
 
     if not search_result["success"]:
         story += search_result["message"]
     elif search_result["total_results"] == 0:
-        story += f"❌ No direct trains found from {origin} to {destination} on {formatted_date}. Try a different date or check for connecting routes."
+        story += f"No direct trains found from {origin} to {destination} on {formatted_date}. Try a different date or check for connecting routes."
     else:
         total_results = search_result["total_results"]
         total_pages = search_result["total_pages"]
@@ -159,20 +166,20 @@ def search_trains(origin: str, destination: str, date: str = None, page: int = 1
 
         for i, train in enumerate(results, start=start_idx + 1):
             story += f"  {i}. {train['train_type']}\n"
-            story += f"     {train['origin_station']} → {train['destination_station']}\n"
+            story += f"     {train['origin_station']} -> {train['destination_station']}\n"
             story += f"     Departs: {train['departure_time']} | Arrives: {train['arrival_time']}\n"
             story += f"     Duration: {train['duration_hours']}h {train['duration_mins']}min\n\n"
 
         # Add pagination navigation hints
         if total_pages > 1:
-            story += "─────────────────────────────────\n"
+            story += "---------------------------------\n"
             if page < total_pages:
-                story += f"💡 To see more trains, use page={page + 1}\n"
+                story += f"To see more trains, use page={page + 1}\n"
             if page > 1:
-                story += f"💡 To see previous trains, use page={page - 1}\n"
-            story += f"💡 Total pages: {total_pages}\n"
+                story += f"To see previous trains, use page={page - 1}\n"
+            story += f"Total pages: {total_pages}\n"
 
-    story += "\n═══════════════════════════════════\n"
+    story += "\n===================================\n"
 
     return story
 
@@ -196,21 +203,21 @@ def find_station(city_name: str, api_key: str = None) -> str:
 
     result = get_stops_for_city(city_name)
 
-    story = "═══════════════════════════════════\n"
+    story = "===================================\n"
     story += "    STATION SEARCH\n"
-    story += "═══════════════════════════════════\n\n"
+    story += "===================================\n\n"
 
     story += result["context"] + "\n"
 
     if result["success"]:
-        story += "\n📍 All stations found:\n"
+        story += "\nAll stations found:\n"
         for i, (sid, name) in enumerate(
             zip(result["stop_ids"], result["stations"]), 1
         ):
             story += f"  {i}. {name}\n"
             story += f"     ID: {sid}\n"
 
-    story += "\n═══════════════════════════════════\n"
+    story += "\n===================================\n"
 
     return story
 
@@ -240,16 +247,16 @@ def get_train_prices(origin: str, destination: str, date: str = None, page: int 
     Returns:
         Formatted string with train prices, availability, and booking information.
     """
-    story = "═══════════════════════════════════\n"
+    story = "===================================\n"
     story += "    RENFE PRICE CHECK\n"
-    story += "═══════════════════════════════════\n\n"
+    story += "===================================\n\n"
 
     # Format the date
     try:
         formatted_date = searcher.format_date(date)
     except ValueError as e:
         story += str(e)
-        story += "\n═══════════════════════════════════\n"
+        story += "\n===================================\n"
         return story
 
     if date:
@@ -268,9 +275,9 @@ def get_train_prices(origin: str, destination: str, date: str = None, page: int 
         results = check_prices(origin, destination, formatted_date, page=page, per_page=per_page)
 
         # Format results
-        story += "─────────────────────────────────\n"
+        story += "---------------------------------\n"
         story += "PRICE RESULTS\n"
-        story += "─────────────────────────────────\n\n"
+        story += "---------------------------------\n\n"
 
         if results:
             story += f"Showing page {page} ({len(results)} trains)\n\n"
@@ -281,28 +288,28 @@ def get_train_prices(origin: str, destination: str, date: str = None, page: int 
                 duration_str = f"{hours}h {mins}min"
 
                 availability = "[Available]" if train["available"] else "[Sold out]"
-                price_str = f"{train['price']:.2f}€" if train["available"] else "N/A"
+                price_str = f"{train['price']:.2f} EUR" if train["available"] else "N/A"
 
                 story += f"  {i}. {train['train_type']}\n"
                 story += f"     Departs: {train['departure_time']} | Arrives: {train['arrival_time']}\n"
                 story += f"     Duration: {duration_str}\n"
                 story += f"     Price: {price_str} | {availability}\n\n"
 
-            story += "─────────────────────────────────\n"
-            story += f"💡 To see more prices, try page={page + 1}\n"
+            story += "---------------------------------\n"
+            story += f"To see more prices, try page={page + 1}\n"
         else:
             story += "No trains available for this page.\n"
 
-        story += "\n💡 TIP: Use search_trains to see the complete schedule without prices.\n"
+        story += "\nTIP: Use search_trains to see the complete schedule without prices.\n"
 
     except ValueError as e:
-        story += f"❌ Error: {str(e)}\n"
+        story += f"Error: {str(e)}\n"
     except Exception as e:
-        story += f"❌ Failed to check prices: {str(e)}\n"
-        story += "\n💡 The Renfe website may be temporarily unavailable or the station names may not match.\n"
+        story += f"Failed to check prices: {str(e)}\n"
+        story += "\nThe Renfe website may be temporarily unavailable or the station names may not match.\n"
         story += "   Try using exact station names like 'MADRID PTA. ATOCHA - ALMUDENA GRANDES' or 'BARCELONA-SANTS'.\n"
 
-    story += "\n═══════════════════════════════════\n"
+    story += "\n===================================\n"
 
     return story
 
@@ -311,25 +318,33 @@ def get_train_prices(origin: str, destination: str, date: str = None, page: int 
 # 4. Server Startup
 # ============================================================================
 
-# Initialize security system
-initialize_security()
+def initialize():
+    """Initialize the server components."""
+    global searcher
 
-# Check for data updates before loading (optional - comment out to disable)
-try:
-    from update_data import update_if_needed
-    update_if_needed()
-except Exception as e:
-    print(f"⚠️  Could not check for updates: {e}")
+    # Initialize security system
+    initialize_security()
 
-# Initialize the schedule searcher (loads GTFS data)
-searcher = ScheduleSearcher()
+    # Check for data updates before loading (optional - comment out to disable)
+    try:
+        from renfe_mcp.update_data import update_if_needed
+        update_if_needed()
+    except Exception as e:
+        print(f"Could not check for updates: {e}")
 
-# Initialize station service with GTFS data
-station_service = get_station_service(searcher.get_stops_dataframe())
-coverage = station_service.validate_coverage()
-if coverage['warnings']:
-    for warning in coverage['warnings']:
-        print(f"⚠️  {warning}")
+    # Initialize the schedule searcher (loads GTFS data)
+    searcher = ScheduleSearcher()
+
+    # Initialize station service with GTFS data
+    station_service = get_station_service(searcher.get_stops_dataframe())
+    coverage = station_service.validate_coverage()
+    if coverage['warnings']:
+        for warning in coverage['warnings']:
+            print(f"Warning: {warning}")
+
+
+# Run initialization on module load
+initialize()
 
 
 if __name__ == "__main__":

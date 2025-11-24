@@ -1,9 +1,9 @@
 """Final integration test for the complete system."""
 
 from datetime import datetime, timedelta
-from schedule_searcher import ScheduleSearcher
-from station_service import get_station_service
-from price_checker import check_prices
+from renfe_mcp.schedule_searcher import ScheduleSearcher
+from renfe_mcp.station_service import get_station_service
+from renfe_mcp.price_checker import check_prices
 
 def get_stops_for_city(city_name: str, stops_df):
     """Helper to get stop IDs for a city using station service."""

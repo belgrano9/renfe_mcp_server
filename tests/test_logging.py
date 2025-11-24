@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from price_checker import check_prices
+from renfe_mcp.price_checker import check_prices
 
 # Configure logging
 logging.basicConfig(

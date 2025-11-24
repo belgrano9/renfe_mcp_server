@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 # Load environment
 load_dotenv()
 
-from security import (
+from renfe_mcp.security import (
     get_security_config,
     get_auth_manager,
     get_rate_limiter,

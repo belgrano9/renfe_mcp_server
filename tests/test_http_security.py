@@ -12,7 +12,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 # Import security functions
-from renfe_scraper.scraper import (
+from renfe_mcp.scraper.scraper import (
     validate_url,
     create_secure_client,
     check_response_size,

@@ -3,7 +3,7 @@ Unified station data service.
 
 This module provides a single source of truth for station information by combining:
 1. GTFS stops.txt (primary source, auto-updated)
-2. renfe_scraper/stations.json (Renfe-specific codes needed for price API)
+2. scraper/stations.json (Renfe-specific codes needed for price API)
 
 The service uses GTFS as the canonical data source and augments it with Renfe
 codes when available, enabling both schedule search and price checking.
@@ -51,8 +51,8 @@ class UnifiedStation:
         }
 
     def to_renfe_format(self):
-        """Convert to format expected by renfe_scraper (Station object)."""
-        from renfe_scraper.models import Station
+        """Convert to format expected by scraper (Station object)."""
+        from renfe_mcp.scraper.models import Station
         if not self.has_renfe_data():
             raise ValueError(f"Station '{self.name}' lacks Renfe codes for price checking")
         return Station(name=self.name, code=self.renfe_code)
@@ -63,7 +63,7 @@ class StationService:
     Unified station data service combining GTFS and Renfe sources.
 
     This service provides a single interface for station lookups, automatically
-    reconciling data from GTFS stops.txt and renfe_scraper/stations.json.
+    reconciling data from GTFS stops.txt and scraper/stations.json.
     """
 
     def __init__(self, gtfs_stops_df: Optional[pd.DataFrame] = None):
@@ -80,12 +80,16 @@ class StationService:
 
     def _load_renfe_stations(self) -> Dict[str, Dict]:
         """Load Renfe station data from stations.json."""
-        stations_file = Path(__file__).parent / "renfe_scraper" / "stations.json"
+        # Try package location first
+        stations_file = Path(__file__).parent / "scraper" / "stations.json"
+        if not stations_file.exists():
+            # Fallback to old location for compatibility
+            stations_file = Path(__file__).parent.parent.parent / "renfe_scraper" / "stations.json"
         try:
             with open(stations_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"⚠️  Warning: Could not load renfe_scraper/stations.json: {e}")
+            print(f"Warning: Could not load stations.json: {e}")
             return {}
 
     def _normalize_name(self, name: str) -> str:
@@ -259,7 +263,7 @@ class StationService:
             city_name: City name to search for
 
         Returns:
-            renfe_scraper.models.Station object or None
+            scraper.models.Station object or None
 
         Raises:
             ValueError: If station lacks Renfe codes

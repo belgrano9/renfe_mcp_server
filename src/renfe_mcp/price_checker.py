@@ -2,7 +2,7 @@
 Price checking wrapper for custom Renfe scraper.
 
 This module provides a simplified interface to check train prices using the
-custom renfe_scraper module with pagination support.
+custom scraper module with pagination support.
 
 Now uses the unified StationService for consistent station lookups.
 """
@@ -11,8 +11,8 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any
 
-from renfe_scraper import RenfeScraper
-from station_service import get_station_service
+from renfe_mcp.scraper import RenfeScraper
+from renfe_mcp.station_service import get_station_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def check_prices(
     per_page: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Check train prices using custom renfe_scraper with pagination support.
+    Check train prices using custom scraper with pagination support.
 
     Args:
         origin: Origin city/station name (e.g., "Madrid", "Barcelona")
@@ -40,7 +40,7 @@ def check_prices(
     Raises:
         ValueError: If stations not found or invalid date format
     """
-    logger.info(f"Price check requested: {origin} → {destination} on {date}, page {page}")
+    logger.info(f"Price check requested: {origin} -> {destination} on {date}, page {page}")
 
     # Find origin and destination stations using unified service
     station_service = get_station_service()
@@ -65,7 +65,7 @@ def check_prices(
     origin_station = origin_unified.to_renfe_format()
     dest_station = dest_unified.to_renfe_format()
 
-    logger.debug(f"Stations resolved: {origin_station.code} → {dest_station.code}")
+    logger.debug(f"Stations resolved: {origin_station.code} -> {dest_station.code}")
 
     # Parse date
     try:

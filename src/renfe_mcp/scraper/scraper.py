@@ -581,7 +581,7 @@ def find_station(name: str) -> Optional[Station]:
     """
     try:
         # Try to use unified station service
-        from station_service import get_station_service
+        from renfe_mcp.station_service import get_station_service
 
         station_service = get_station_service()
         unified_station = station_service.find_station(name)

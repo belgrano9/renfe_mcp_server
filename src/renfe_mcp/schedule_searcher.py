@@ -110,7 +110,7 @@ class ScheduleSearcher:
 
             except (ValueError, date_parser.ParserError) as e:
                 raise ValueError(
-                    f"❌ Could not parse date '{date_str}'. "
+                    f"Could not parse date '{date_str}'. "
                     f"Supported formats:\n"
                     f"  - ISO: '2025-11-28'\n"
                     f"  - European: '28/11/2025'\n"
@@ -208,7 +208,7 @@ class ScheduleSearcher:
                 "total_results": 0,
                 "page": page,
                 "total_pages": 0,
-                "message": f"❌ No train services running on {date_str}. This might be a special holiday or outside the schedule date range."
+                "message": f"No train services running on {date_str}. This might be a special holiday or outside the schedule date range."
             }
 
         # Filter trips that run on this date

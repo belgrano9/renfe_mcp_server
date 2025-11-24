@@ -10,7 +10,7 @@ This tests that the StationService correctly:
 
 def test_station_service_without_gtfs():
     """Test StationService with only Renfe data (no GTFS)."""
-    from station_service import StationService
+    from renfe_mcp.station_service import StationService
 
     print("=" * 70)
     print("TEST 1: StationService without GTFS data")
@@ -85,9 +85,9 @@ def test_station_service_integration():
     print("=" * 70)
 
     # Test 1: Find station via scraper.find_station
-    print("\nTest 2.1: renfe_scraper.find_station() using StationService")
+    print("\nTest 2.1: scraper.find_station() using StationService")
     try:
-        from renfe_scraper.scraper import find_station
+        from renfe_mcp.scraper.scraper import find_station
 
         madrid = find_station("Madrid")
         if madrid:
@@ -110,7 +110,7 @@ def test_station_service_integration():
 
     try:
         # This will work even without GTFS if station_service has Renfe data
-        from station_service import get_station_service
+        from renfe_mcp.station_service import get_station_service
 
         service = get_station_service()
         madrid_unified = service.find_stations("Madrid")
